@@ -552,14 +552,14 @@ function renderLessons() {
 
         const item = document.createElement("div");
 
-        item.className = "glass rounded-2xl p-4 flex items-center gap-4 glass-hover";
+        item.className = "schedule-lesson glass rounded-2xl p-4 flex items-center gap-4 glass-hover";
 
         item.innerHTML = `
-            <div class="w-14 h-14 rounded-2xl bg-${data.color}-500/10 flex items-center justify-center shrink-0">
+            <div class="schedule-lesson-icon w-14 h-14 rounded-2xl bg-${data.color}-500/10 flex items-center justify-center shrink-0">
                 <i data-lucide="${data.icon}" class="w-6 h-6 text-${data.color}-300"></i>
             </div>
 
-            <div class="flex-1 min-w-0">
+            <div class="schedule-lesson-details flex-1 min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                     <h3 class="font-bold truncate">${escapeHTML(lesson.name)}</h3>
                     <span class="text-[10px] px-2 py-1 rounded-full bg-white/5 opacity-60">
@@ -567,15 +567,17 @@ function renderLessons() {
                     </span>
                 </div>
 
-                <div class="flex items-center gap-2 mt-2 text-xs opacity-50">
-                    <i data-lucide="clock-3" class="w-3.5 h-3.5"></i>
-                    ${lesson.time}
-                    <span>•</span>
-                    Reminder ${lesson.reminder} min before
+                <div class="schedule-lesson-meta flex items-center gap-2 mt-2 text-xs opacity-50">
+                    <span class="schedule-lesson-time flex items-center gap-2">
+                        <i data-lucide="clock-3" class="w-3.5 h-3.5"></i>
+                        ${lesson.time}
+                    </span>
+                    <span class="schedule-lesson-separator">•</span>
+                    <span class="schedule-lesson-reminder">Reminder ${lesson.reminder} min before</span>
                 </div>
             </div>
 
-            <div class="flex items-center gap-1">
+            <div class="schedule-lesson-actions flex items-center gap-1">
                 <button onclick="openScheduleModal(${lesson.id})" class="w-9 h-9 rounded-xl glass flex items-center justify-center hover:text-violet-300">
                     <i data-lucide="pencil" class="w-4 h-4"></i>
                 </button>
