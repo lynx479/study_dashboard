@@ -12,13 +12,39 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <!-- Custom Styles -->
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<div id="app">
+<section id="authGate" class="min-h-screen flex items-center justify-center px-4 py-10">
+    <div class="glass w-full max-w-md rounded-3xl p-6 md:p-8">
+        <p class="text-xs opacity-50">STUDY HUB</p>
+        <h1 id="authTitle" class="text-3xl font-black mt-2">Sign in</h1>
+        <p class="opacity-60 mt-2 mb-6">Sign in to access your dashboard across devices.</p>
+
+        <form id="authForm" class="space-y-4">
+            <div>
+                <label for="authEmail" class="text-xs opacity-60 block mb-2">Email</label>
+                <input id="authEmail" class="input" type="email" autocomplete="email" required>
+            </div>
+            <div>
+                <label for="authPassword" class="text-xs opacity-60 block mb-2">Password</label>
+                <input id="authPassword" class="input" type="password" autocomplete="current-password" minlength="6" required>
+            </div>
+            <button id="authSubmitButton" class="primary-btn w-full py-3 rounded-xl font-bold" type="submit">Sign in</button>
+        </form>
+
+        <button id="authModeButton" class="text-sm opacity-70 mt-5" type="button">New here? Create an account</button>
+        <p id="authMessage" class="text-sm mt-4" role="status" aria-live="polite"></p>
+    </div>
+</section>
+
+<div id="app" class="hidden">
 
     
     <header id="mainHeader" class="sticky top-0 z-40 px-4 pt-4">
@@ -57,6 +83,17 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+
+                    <span id="authUserEmail" class="hidden md:block max-w-40 truncate text-xs opacity-60"></span>
+
+                    <button
+                        id="signOutButton"
+                        onclick="signOut()"
+                        class="hidden w-10 h-10 rounded-xl glass items-center justify-center hover:bg-white/10 transition"
+                        title="Sign out"
+                        aria-label="Sign out">
+                        <i data-lucide="log-out" class="w-5 h-5"></i>
+                    </button>
 
                     <button
                         id="notificationButton"

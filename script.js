@@ -20,14 +20,29 @@ const STORAGE_KEYS = {
     theme: "studyhub_theme",
     sessions: "studyhub_sessions",
     focusMinutes: "studyhub_focus_minutes",
-    quote: "studyhub_quote"
+    quote: "studyhub_quote",
+    localDataMigrated: "studyhub_local_data_migrated"
 };
+
+const SUPABASE_URL = "https://cxqcqpqsgmyrwwkaeeeo.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Oa1fEl3MGSem2RwHa7zLJg_kdI2kFS7";
+const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+);
 
 let lessons = JSON.parse(localStorage.getItem(STORAGE_KEYS.lessons) || "[]");
 let tasks = JSON.parse(localStorage.getItem(STORAGE_KEYS.tasks) || "[]");
 
 let completedSessions = Number(localStorage.getItem(STORAGE_KEYS.sessions) || 0);
 let totalFocusMinutes = Number(localStorage.getItem(STORAGE_KEYS.focusMinutes) || 0);
+let currentUser = null;
+let activeUserId = null;
+let dashboardChannel = null;
+let cloudSaveTimeout = null;
+let lastCloudUpdatedAt = null;
+let authMode = "signin";
+let authGeneration = 0;
 
 let timerMode = "focus";
 let timerSeconds = 25 * 60;
@@ -72,6 +87,277 @@ function saveData() {
     localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks));
     localStorage.setItem(STORAGE_KEYS.sessions, completedSessions);
     localStorage.setItem(STORAGE_KEYS.focusMinutes, totalFocusMinutes);
+
+    queueCloudSave();
+}
+
+function getDashboardSnapshot() {
+    return {
+        tasks,
+        lessons,
+        completed_sessions: completedSessions,
+        focus_minutes: totalFocusMinutes
+    };
+}
+
+function queueCloudSave() {
+    if (!currentUser) {
+        return;
+    }
+
+    clearTimeout(cloudSaveTimeout);
+
+    cloudSaveTimeout = setTimeout(async () => {
+        const userId = currentUser?.id;
+
+        if (!userId) {
+            return;
+        }
+
+        const updatedAt = new Date().toISOString();
+        const { error } = await supabaseClient
+            .from("user_dashboard")
+            .upsert({
+                user_id: userId,
+                ...getDashboardSnapshot(),
+                updated_at: updatedAt
+            }, { onConflict: "user_id" });
+
+        if (error) {
+            showToast(`Cloud sync failed: ${error.message}`, "error");
+            return;
+        }
+
+        lastCloudUpdatedAt = updatedAt;
+    }, 350);
+}
+
+function applyDashboardSnapshot(snapshot) {
+    lessons = Array.isArray(snapshot.lessons) ? snapshot.lessons : [];
+    tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : [];
+    completedSessions = Number(snapshot.completed_sessions) || 0;
+    totalFocusMinutes = Number(snapshot.focus_minutes) || 0;
+    lastCloudUpdatedAt = snapshot.updated_at || null;
+
+    localStorage.setItem(STORAGE_KEYS.lessons, JSON.stringify(lessons));
+    localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks));
+    localStorage.setItem(STORAGE_KEYS.sessions, completedSessions);
+    localStorage.setItem(STORAGE_KEYS.focusMinutes, totalFocusMinutes);
+
+    renderLessons();
+    renderTasks();
+    updateDashboard();
+}
+
+async function loadCloudDashboard(user, generation) {
+    const { data, error } = await supabaseClient
+        .from("user_dashboard")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+    if (generation !== authGeneration || currentUser?.id !== user.id) {
+        return;
+    }
+
+    if (error) {
+        throw error;
+    }
+
+    if (data) {
+        applyDashboardSnapshot(data);
+        localStorage.setItem(STORAGE_KEYS.localDataMigrated, "true");
+        return;
+    }
+
+    const hasLocalData =
+        lessons.length > 0 ||
+        tasks.length > 0 ||
+        completedSessions > 0 ||
+        totalFocusMinutes > 0;
+
+    const shouldMigrateLocalData =
+        localStorage.getItem(STORAGE_KEYS.localDataMigrated) !== "true" &&
+        hasLocalData;
+
+    if (!shouldMigrateLocalData) {
+        lessons = [];
+        tasks = [];
+        completedSessions = 0;
+        totalFocusMinutes = 0;
+    }
+
+    const { error: saveError } = await supabaseClient
+        .from("user_dashboard")
+        .upsert({
+            user_id: user.id,
+            ...getDashboardSnapshot()
+        }, { onConflict: "user_id" });
+
+    if (saveError) {
+        throw saveError;
+    }
+
+    if (generation !== authGeneration || currentUser?.id !== user.id) {
+        return;
+    }
+
+    localStorage.setItem(STORAGE_KEYS.localDataMigrated, "true");
+    applyDashboardSnapshot(getDashboardSnapshot());
+}
+
+function subscribeToDashboard(user) {
+    if (dashboardChannel) {
+        supabaseClient.removeChannel(dashboardChannel);
+    }
+
+    dashboardChannel = supabaseClient
+        .channel(`dashboard-${user.id}`)
+        .on("postgres_changes", {
+            event: "*",
+            schema: "public",
+            table: "user_dashboard",
+            filter: `user_id=eq.${user.id}`
+        }, payload => {
+            if (
+                payload.new?.user_id !== currentUser?.id ||
+                payload.new?.updated_at === lastCloudUpdatedAt
+            ) {
+                return;
+            }
+
+            applyDashboardSnapshot(payload.new);
+        })
+        .subscribe();
+}
+
+async function activateSession(session) {
+    const user = session?.user;
+
+    if (!user) {
+        authGeneration++;
+        currentUser = null;
+        activeUserId = null;
+        lastCloudUpdatedAt = null;
+        clearTimeout(cloudSaveTimeout);
+
+        if (dashboardChannel) {
+            supabaseClient.removeChannel(dashboardChannel);
+            dashboardChannel = null;
+        }
+
+        document.getElementById("app").classList.add("hidden");
+        document.getElementById("authGate").classList.remove("hidden");
+        document.getElementById("authUserEmail").textContent = "";
+        document.getElementById("signOutButton").classList.add("hidden");
+        document.getElementById("signOutButton").classList.remove("flex");
+        return;
+    }
+
+    if (activeUserId === user.id) {
+        return;
+    }
+
+    const generation = ++authGeneration;
+    clearTimeout(cloudSaveTimeout);
+    activeUserId = user.id;
+    currentUser = user;
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("authGate").classList.remove("hidden");
+    document.getElementById("authMessage").textContent = "Loading your cloud data...";
+
+    try {
+        await loadCloudDashboard(user, generation);
+        if (generation !== authGeneration || currentUser?.id !== user.id) {
+            return;
+        }
+
+        subscribeToDashboard(user);
+        document.getElementById("authUserEmail").textContent = user.email || "Signed in";
+        document.getElementById("signOutButton").classList.remove("hidden");
+        document.getElementById("signOutButton").classList.add("flex");
+        document.getElementById("authGate").classList.add("hidden");
+        document.getElementById("app").classList.remove("hidden");
+    } catch (error) {
+        if (generation !== authGeneration) {
+            return;
+        }
+
+        currentUser = null;
+        activeUserId = null;
+        document.getElementById("authMessage").textContent =
+            `Could not load cloud data: ${error.message}`;
+    }
+}
+
+function setAuthMode(mode) {
+    authMode = mode;
+    const signingUp = mode === "signup";
+
+    document.getElementById("authTitle").textContent = signingUp ? "Create account" : "Sign in";
+    document.getElementById("authSubmitButton").textContent = signingUp ? "Create account" : "Sign in";
+    document.getElementById("authModeButton").textContent = signingUp
+        ? "Already have an account? Sign in"
+        : "New here? Create an account";
+    document.getElementById("authPassword").setAttribute(
+        "autocomplete",
+        signingUp ? "new-password" : "current-password"
+    );
+}
+
+async function submitAuthForm(event) {
+    event.preventDefault();
+
+    const email = document.getElementById("authEmail").value.trim();
+    const password = document.getElementById("authPassword").value;
+    const message = document.getElementById("authMessage");
+    const submitButton = document.getElementById("authSubmitButton");
+
+    submitButton.disabled = true;
+    message.textContent = "Please wait...";
+
+    try {
+        if (authMode === "signup") {
+            const emailRedirectTo = window.location.origin === "null"
+                ? undefined
+                : window.location.origin;
+
+            const { data, error } = await supabaseClient.auth.signUp({
+                email,
+                password,
+                options: emailRedirectTo ? { emailRedirectTo } : {}
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            if (!data.session) {
+                message.textContent = "Check your email to confirm your account, then sign in.";
+            }
+        } else {
+            const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                throw error;
+            }
+        }
+    } catch (error) {
+        message.textContent = error.message;
+    } finally {
+        submitButton.disabled = false;
+    }
+}
+
+async function signOut() {
+    const { error } = await supabaseClient.auth.signOut();
+
+    if (error) {
+        showToast(`Could not sign out: ${error.message}`, "error");
+        return;
+    }
+
+    await activateSession(null);
 }
 
 function formatDate() {
@@ -1162,17 +1448,38 @@ window.addEventListener("click", function(event) {
     }
 });
 
-function initialize() {
+async function initialize() {
     loadTheme();
     updateDate();
-    renderLessons();
-    renderTasks();
-    updateDashboard();
     loadQuote();
     renderPrayerTimes();
     updateTimerDisplay();
 
     lucide.createIcons();
+
+    document
+        .getElementById("authForm")
+        .addEventListener("submit", submitAuthForm);
+
+    document
+        .getElementById("authModeButton")
+        .addEventListener("click", () => {
+            setAuthMode(authMode === "signin" ? "signup" : "signin");
+        });
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+        setTimeout(() => {
+            void activateSession(session);
+        }, 0);
+    });
+
+    const { data, error } = await supabaseClient.auth.getSession();
+
+    if (error) {
+        document.getElementById("authMessage").textContent = error.message;
+    } else {
+        await activateSession(data.session);
+    }
 
     setInterval(
         checkNotifications,

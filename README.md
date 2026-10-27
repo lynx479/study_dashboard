@@ -201,7 +201,8 @@ The project also uses animated background effects and interactive UI elements to
 * **JavaScript**
 * **Tailwind CSS**
 * **Lucide Icons**
-* **Local Storage API**
+* **Supabase Auth, Postgres, Realtime, and Row Level Security**
+* **Local Storage API** (preferences and one-time data migration)
 * **Vercel**
 
 ---
@@ -214,12 +215,23 @@ Study-Hub/
 ├── index.html
 ├── script.js
 ├── style.css
+├── supabase-schema.sql
 └── README.md
 ```
 
+## ☁️ Cloud Sync Setup
+
+Tasks, lessons, and focus statistics sync through Supabase for the signed-in user. Apply `supabase-schema.sql` in the Supabase SQL Editor to create the user-owned dashboard table, enable Row Level Security, and add the Realtime publication.
+
+The Supabase project URL and publishable key are configured in `script.js`. The publishable key is intended for browser use; never add a service-role key to this project.
+
+In Supabase Authentication settings, enable email/password sign-in. Set the Site URL to the deployed website and add the deployed URL plus your local development URL (for example, `http://127.0.0.1:5500/**`) under the allowed redirect URLs. Email confirmation may be required before the first sign-in.
+
+On the first sign-in, existing local tasks, lessons, and focus statistics are imported if that browser has not already completed the one-time migration. Other devices load the account's cloud data after sign-in.
+
 ## 🌐 Live Website
 
-[![Live Website](https://img.shields.io/badge/Live%20Website-Visit%20Website-8B5CF6?style=for-the-badge&labelColor=111111)](https://study-dashboard111.vercel.app/)
+[![Live Website](https://img.shields.io/badge/Live%20Website-Visit%20Website-8B5CF6?style=for-the-badge&labelColor=111111)](https://saudstudy.vercel.app/)
 
 ## </> Developer
 
